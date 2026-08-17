@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Waypath — Personalized Learning Path Recommender</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <div id="sidebar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 30 30"><path d="M4 26 C 8 18, 6 12, 14 8 C 20 5, 20 12, 26 6" stroke="#F0DCB8" stroke-width="2.4" fill="none" stroke-linecap="round"/><circle cx="4" cy="26" r="2.6" fill="#C9862F"/><circle cx="26" cy="6" r="2.6" fill="#EAF0E4"/></svg>
+      <div><div class="brand-name">Waypath</div><div class="brand-sub">learning trail guide</div></div>
+    </div>
+    <nav>
+      <button class="nav-item active" data-view="onboard" onclick="goTo('onboard')"><span class="dot"></span>Trailhead</button>
+      <button class="nav-item" data-view="path" onclick="goTo('path')" id="nav-path" disabled><span class="dot"></span>Your Path</button>
+      <button class="nav-item" data-view="dash" onclick="goTo('dash')" id="nav-dash" disabled><span class="dot"></span>Dashboard</button>
+    </nav>
+    <div class="sidebar-foot" id="sidebar-profile" style="display:none;">
+      <div class="profile-chip">
+        <b id="sp-track">—</b>
+        <span id="sp-level">—</span> · <span id="sp-pace">—</span>
+      </div>
+      <button class="nav-item" style="margin-top:12px; font-size:12px; opacity:0.75;" onclick="resetDemo()">↺ Restart demo</button>
+    </div>
+  </div>
+
+  <div id="main">
+
+    <!-- ONBOARDING -->
+    <div class="view active" id="view-onboard">
+      <div class="page-head">
+        <div class="eyebrow">Step 01 · Trailhead</div>
+        <h1>Where do you want to end up?</h1>
+        <p>Tell me your goal in your own words. I'll ask a couple of quick questions, then chart a personalized route — with the parts you already know skipped.</p>
+      </div>
+      <div class="trailhead">
+        <div class="chat-log" id="chat-log"></div>
+        <div id="chat-controls"></div>
+      </div>
+    </div>
+
+    <!-- PATH -->
+    <div class="view" id="view-path">
+      <div class="page-head">
+        <div class="eyebrow">Your route</div>
+        <h1 id="path-title">Learning Path</h1>
+        <p id="path-desc">Click any waypoint to see why it's on your route, or ask the guide a question below.</p>
+      </div>
+      <div class="path-layout">
+        <div class="trail-wrap" id="trail-wrap"></div>
+        <div class="node-detail">
+          <div class="detail-card" id="detail-card">
+            <div class="empty-detail">Select a waypoint on the trail to see details.</div>
+          </div>
+          <div class="ask-box">
+            <div class="ask-title">🧭 Ask the guide</div>
+            <div class="ask-log" id="ask-log"></div>
+            <div class="ask-input-row">
+              <input type="text" id="ask-input" placeholder="e.g. why this one? how long? can I skip it?" onkeydown="if(event.key==='Enter')askGuide()">
+              <button class="btn small" onclick="askGuide()">Ask</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div class="view" id="view-dash">
+      <div class="page-head">
+        <div class="eyebrow">Base camp</div>
+        <h1>Dashboard</h1>
+        <p>Your progress, skill growth, and what's next — updated as you complete waypoints.</p>
+      </div>
+      <div class="dash-grid">
+        <div class="card">
+          <h3>Overall progress</h3>
+          <div class="sub" id="dash-progress-sub">0 of 0 waypoints complete</div>
+          <div class="progress-track"><div class="progress-fill" id="dash-progress-fill" style="width:0%"></div></div>
+          <div class="stat-row">
+            <div class="stat"><b id="stat-hours">0</b><span>hours invested</span></div>
+            <div class="stat"><b id="stat-skills">0</b><span>skills gained</span></div>
+            <div class="stat"><b id="stat-milestones">0</b><span>milestones hit</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Skill growth</h3>
+          <div class="sub">Radar of skill areas on your track</div>
+          <div id="radar-wrap"></div>
+        </div>
+      </div>
+      <div class="dash-grid" style="grid-template-columns:1fr 1fr;">
+        <div class="card">
+          <h3>Milestones</h3>
+          <div class="sub">Major checkpoints on your route</div>
+          <ul class="milestone-list" id="milestone-list"></ul>
+        </div>
+        <div class="card">
+          <h3>Next recommended action</h3>
+          <div class="sub">What the guide suggests you tackle now</div>
+          <div class="next-action" id="next-action-box">
+            <div><div class="na-label">Up next</div><h4 id="na-title">—</h4></div>
+            <button class="btn small" onclick="goTo('path')">Go there</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+<script src="script.js"></script>
+</body>
+</html>

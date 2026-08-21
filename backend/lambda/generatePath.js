@@ -8,6 +8,11 @@ const bedrock = new BedrockRuntimeClient({
   region: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "us-east-1",
 });
 
+// Temporary Debugging: Log the Bedrock model ID being used
+console.log("AWS_REGION:", process.env.AWS_REGION);
+console.log("AWS_DEFAULT_REGION:", process.env.AWS_DEFAULT_REGION);
+console.log("BEDROCK_MODEL_ID:", modelId);
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "*",
   "Access-Control-Allow-Headers": "Content-Type,Authorization",

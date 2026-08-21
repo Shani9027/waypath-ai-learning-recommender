@@ -915,70 +915,167 @@ async function finishOnboarding() {
   setTimeout(() => goTo("path"), 400);
 }
 
-// Generate a safe local roadmap first. If Claude is available, update it with the AI-generated route.
+// AWS API Gateway endpoint for learning path generation
+const AWS_GENERATE_PATH_URL =
+  "https://i81ne3js36.execute-api.ap-south-1.amazonaws.com/generate-path";
+
+// Call AWS API Gateway to generate a personalized learning path
+async function generateLearningPathWithAWS(learner) {
+  console.log("[Waypath] Calling AWS learning path API");
+  try {
+    const res = await fetch(AWS_GENERATE_PATH_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(learner),
+    });
+
+    if (!res.ok) {
+      let errorBody = "";
+      try {
+        errorBody = await res.text();
+      } catch (_) {}
+      console.error(
+        `[Waypath] AWS API error (HTTP ${res.status} ${res.statusText}):`,
+        errorBody,
+      );
+      return null;
+    }
+
+    const data = await res.json();
+    if (!data || !data.learningPath) {
+      console.error("[Waypath] AWS API error: missing learningPath in response", data);
+      return null;
+    }
+
+    return data.learningPath;
+  } catch (error) {
+    console.error("[Waypath] AWS API error:", error);
+    return null;
+  }
+}
+
+// Generate a safe local roadmap first. If AWS API Gateway is available, update it with the AI-generated route.
 async function buildPathWithAI() {
   buildPathRuleBased(); // always compute a safe baseline first
   if (!state.aiAvailable) return;
+
   const track = TRACKS[state.trackId];
-  const candidates = track.nodes.map((n) => ({
-    id: n.id,
-    title: n.title,
-    type: n.type,
-    level: n.level,
-    skills: n.skills,
-    prereq: n.prereq,
-    milestone: !!n.milestone,
-  }));
-  const system = `You are an expert learning-path designer inside an app called Waypath. You will be given a learner profile and a candidate list of courses/projects (with skill tags and prerequisite skill ids) for one track. Decide, for each node id, whether it should be WAIVED (learner already effectively knows it, or it's too basic for their level) or INCLUDED, respecting prerequisite order (a node's prereq skills must be satisfied by earlier included/waived nodes' skills). Respond with ONLY minified JSON, no prose, no markdown fences, matching exactly this shape:
-{"order":["id1","id2",...all node ids in the sequence learner should walk, waived ones included in their natural position...],"waived":["id2",...ids to mark waived],"reasons":{"id1":"one short sentence, second person, explaining why this node is placed here or waived, referencing the learner's stated goal and profile"},"skillGapSummary":"2-3 sentence natural-language summary of the learner's current skill gaps relative to their goal, second person, encouraging tone"}`;
-  const userMsg = `Learner profile:
-- Name: ${state.name}
-- Stated goal (their own words): "${state.goalText}"
-- Track: ${track.name}
-- Self-rated experience level: ${state.level}
-- Weekly time commitment: ${state.pace}
-- Target timeframe: ${state.timeframe}
-- Preferred learning style: ${state.style}
-- Skills they already claim to know: ${state.knownSkills.length ? state.knownSkills.map((s) => track.skillLabels[s]).join(", ") : "none"}
+  const paceHoursMap = {
+    casual: "3",
+    steady: "6",
+    intensive: "10",
+  };
+  const weeklyHours =
+    paceHoursMap[state.pace] || (state.pace ? String(state.pace) : "5");
 
-Candidate nodes (id, title, type, level, skills taught, prereq skills, is milestone):
-${JSON.stringify(candidates)}
+  const knownSkillsList = Array.isArray(state.knownSkills)
+    ? state.knownSkills.map(
+        (s) => (track && track.skillLabels && track.skillLabels[s]) || s,
+      )
+    : [];
 
-Skill label reference: ${JSON.stringify(track.skillLabels)}`;
+  const learner = {
+    name: state.name || "Learner",
+    goal: state.goalText || (track ? track.name : "Learn new skills"),
+    experienceLevel: state.level || "beginner",
+    knownSkills: knownSkillsList,
+    weeklyLearningHours: weeklyHours,
+    timeframe: state.timeframe || "6 months",
+    learningStyle: state.style || "Hands-on projects",
+  };
 
-  const result = await callClaude(
-    system,
-    [{ role: "user", content: userMsg }],
-    { json: true },
-  );
-  if (!result || !Array.isArray(result.order)) {
-    return;
-  } // keep rule-based baseline
+  const learningPath = await generateLearningPathWithAWS(learner);
+  if (!learningPath) {
+    return; // keep rule-based baseline
+  }
 
   try {
-    const byId = {};
-    state.path.forEach((n) => (byId[n.id] = n));
-    const waivedSet = new Set(result.waived || []);
-    const newPath = result.order.map((id) => byId[id]).filter(Boolean);
-    // safety: if AI dropped/invented ids, bail out to the rule-based baseline
-    if (newPath.length < state.path.length * 0.6) return;
-    newPath.forEach((n) => {
-      n.status = waivedSet.has(n.id) ? "waived" : "locked";
-      if (result.reasons && result.reasons[n.id])
-        n.aiReason = result.reasons[n.id];
-    });
-    let assigned = false;
-    newPath.forEach((n) => {
-      if (n.status === "waived") return;
-      if (!assigned) {
-        n.status = "current";
-        assigned = true;
+    if (
+      Array.isArray(learningPath.learningSequence) &&
+      learningPath.learningSequence.length > 0
+    ) {
+      const milestoneTitles = new Set(
+        (learningPath.milestones || []).map((m) =>
+          (typeof m === "string" ? m : m.title || "").toLowerCase().trim(),
+        ),
+      );
+
+      const newPath = learningPath.learningSequence.map((step, idx) => {
+        const title = step.title || `Module ${idx + 1}`;
+        const isProject =
+          (step.type && step.type.toLowerCase().includes("project")) || false;
+        const isMilestone =
+          isProject || milestoneTitles.has(title.toLowerCase().trim());
+        const hours = Number(step.estimatedHours) || 8;
+        const prereq = Array.isArray(step.prerequisites)
+          ? step.prerequisites
+          : [];
+
+        return {
+          id: `step-${step.order || idx + 1}`,
+          title: title,
+          type: isProject ? "project" : step.type || "course",
+          level: state.level || "beginner",
+          hours: hours,
+          skills: Array.isArray(step.skills) ? step.skills : [],
+          prereq: prereq,
+          desc:
+            step.explanation || `${step.type || "Course"} covering ${title}.`,
+          milestone: isMilestone,
+          trackId: state.trackId,
+          status: idx === 0 ? "current" : "locked",
+          aiReason: step.explanation || "",
+          note: "",
+        };
+      });
+
+      if (newPath.length) {
+        state.path = newPath;
       }
-    });
-    if (!assigned && newPath.length)
-      newPath[newPath.length - 1].status = "current";
-    state.path = newPath;
-    if (result.skillGapSummary) state.skillGapSummary = result.skillGapSummary;
+    } else if (Array.isArray(learningPath.order)) {
+      const byId = {};
+      state.path.forEach((n) => (byId[n.id] = n));
+      const waivedSet = new Set(learningPath.waived || []);
+      const newPath = learningPath.order.map((id) => byId[id]).filter(Boolean);
+      // safety: if AI dropped/invented ids, bail out to the rule-based baseline
+      if (newPath.length < state.path.length * 0.6) return;
+      newPath.forEach((n) => {
+        n.status = waivedSet.has(n.id) ? "waived" : "locked";
+        if (learningPath.reasons && learningPath.reasons[n.id])
+          n.aiReason = learningPath.reasons[n.id];
+      });
+      let assigned = false;
+      newPath.forEach((n) => {
+        if (n.status === "waived") return;
+        if (!assigned) {
+          n.status = "current";
+          assigned = true;
+        }
+      });
+      if (!assigned && newPath.length)
+        newPath[newPath.length - 1].status = "current";
+      state.path = newPath;
+    }
+
+    if (
+      Array.isArray(learningPath.skillGaps) &&
+      learningPath.skillGaps.length > 0
+    ) {
+      state.skillGapSummary = `Identified skill gaps to focus on: ${learningPath.skillGaps.join(", ")}.`;
+    } else if (
+      typeof learningPath.skillGaps === "string" &&
+      learningPath.skillGaps
+    ) {
+      state.skillGapSummary = learningPath.skillGaps;
+    } else if (learningPath.skillGapSummary) {
+      state.skillGapSummary = learningPath.skillGapSummary;
+    }
+
+    if (learningPath.nextRecommendedAction) {
+      state.nextRecommendedAction = learningPath.nextRecommendedAction;
+    }
   } catch (e) {
     console.warn("AI plan parse failed, keeping rule-based path", e);
   }
@@ -1052,26 +1149,26 @@ function recomputeStatuses() {
 
 function generateWhy(node) {
   const track = TRACKS[node.trackId];
-  if (node.aiReason) return node.aiReason + ' <span class="ai-tag">AI</span>';
+  if (node.aiReason) return escapeHtml(node.aiReason) + ' <span class="ai-tag">AI</span>';
   if (node.status === "waived") return node.note;
   let parts = [];
   parts.push(
-    `Because your goal was <b>"${escapeHtml(state.goalText)}"</b>, this sits on your <b>${track.name}</b> route.`,
+    `Because your goal was <b>"${escapeHtml(state.goalText)}"</b>, this sits on your <b>${track ? track.name : "learning"}</b> route.`,
   );
-  if (node.prereq.length) {
+  if (node.prereq && node.prereq.length) {
     parts.push(
-      `It needs ${node.prereq.map((s) => track.skillLabels[s]).join(", ")}, which the earlier steps on this trail cover.`,
+      `It needs ${node.prereq.map((s) => (track && track.skillLabels && track.skillLabels[s]) || s).join(", ")}, which the earlier steps on this trail cover.`,
     );
   } else {
     parts.push(`It has no prerequisites, so it's a safe place to start.`);
   }
   if (node.milestone) {
     parts.push(
-      `This is a milestone project — it exists to prove the skills before you before you move to harder material.`,
+      `This is a milestone project — it exists to prove the skills before you move to harder material.`,
     );
-  } else if (node.skills.length) {
+  } else if (node.skills && node.skills.length) {
     parts.push(
-      `It teaches ${node.skills.map((s) => track.skillLabels[s]).join(", ")}, a gap in what you told me you know.`,
+      `It teaches ${node.skills.map((s) => (track && track.skillLabels && track.skillLabels[s]) || s).join(", ")}, a gap in what you told me you know.`,
     );
   }
   if (node.note) parts.push(node.note);
@@ -1221,7 +1318,7 @@ function renderDetail(id) {
     <div class="detail-meta" style="margin-top:10px;">
       <span>⏱ ${node.hours}h</span>
       <span>LVL ${node.level}</span>
-      ${node.skills.length ? `<span>+${node.skills.map((s) => track.skillLabels[s]).join(", ")}</span>` : ""}
+      ${node.skills && node.skills.length ? `<span>+${node.skills.map((s) => (track && track.skillLabels && track.skillLabels[s]) || s).join(", ")}</span>` : ""}
     </div>
     <div class="detail-desc">${escapeHtml(node.desc)}</div>
     <div class="why-box"><b>Why this is on your route</b><br>${generateWhy(node)}</div>
@@ -1431,6 +1528,11 @@ function renderDashboard() {
 }
 
 function renderRadar(track, skillSet) {
+  if (!track || !track.skillLabels) {
+    const radarWrap = document.getElementById("radar-wrap");
+    if (radarWrap) radarWrap.innerHTML = "";
+    return;
+  }
   const skills = Object.keys(track.skillLabels);
   const labels = Object.values(track.skillLabels);
   const N = skills.length;
